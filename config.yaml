@@ -1,0 +1,41 @@
+# Daily Hot Search Configuration
+
+push:
+  wechat:
+    provider: ""
+    token: ""
+  telegram:
+    bot_token: ""
+    chat_id: ""
+
+schedule:
+  time: "07:30"
+  timezone: "Asia/Shanghai"
+
+data_sources:
+  baidu:
+    enabled: true
+    url: "https://top.baidu.com/board?tab=realtime"
+    top_n: 10
+  weibo:
+    enabled: true
+    url: "https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot"
+    top_n: 10
+  xueqiu:
+    enabled: true
+    url: "https://xueqiu.com"
+    hot_topics: 10
+    hot_stocks: 5
+  stocks:
+    enabled: true
+    shanghai:
+      secid: "1.000001"
+      api: "https://push2.eastmoney.com/api/qt/stock/get"
+    shenzhen:
+      url: "https://finance.sina.com.cn/realstock/company/sz399001/nc.shtml"
+  margin_trading:
+    enabled: true
+    url: "https://data.eastmoney.com/rzrq/total.html"
+
+output:
+  format: "markdown"

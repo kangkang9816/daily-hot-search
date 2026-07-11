@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  daily-hot-search:
+    image: python:3.11-slim
+    container_name: daily-hot-search
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ./cron:/etc/cron.d
+    environment:
+      - TZ=Asia/Shanghai
+      - PUSH_WECHAT_PROVIDER=${PUSH_WECHAT_PROVIDER:-}
+      - PUSH_WECHAT_TOKEN=${PUSH_WECHAT_TOKEN:-}
+      - PUSH_TELEGRAM_BOT_TOKEN=${PUSH_TELEGRAM_BOT_TOKEN:-}
+      - PUSH_TELEGRAM_CHAT_ID=${PUSH_TELEGRAM_CHAT_ID:-}
+    command: >
+      sh -c "
+        pip install -r requirements.txt --quiet &&
+        apt-get update -qq && apt-get install -y -qq cron --no-install-recommends &&
+        echo '30 7 * * * cd /app && python main.py' > /etc/cron.d/daily-hot-search &&
+        crontab /etc/cron.d/daily-hot-search &&
+        cron -f
+      "
