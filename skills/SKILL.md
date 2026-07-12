@@ -1,7 +1,7 @@
 ---
 name: daily-hot-search
 description: 每日热搜早报推送 — 通过 Playwright MCP 定时抓取百度热搜、微博热搜、雪球热榜三大平台数据，整理成精美推送消息通过微信发送。
-version: 2.0.0
+version: 2.1.0
 author: Hermes Agent
 related_skills: [cronjob, nas-monitor, nas-security-scan]
 ---
@@ -72,25 +72,18 @@ browser_console({expression: "document.body.innerText.substring(idx, idx+2000)"}
   }).filter(Boolean).slice(0, 10)
   ```
 - **为什么这个方案可行**：`weibo.com/newlogin?tabtype=search` 是微博的公开热搜页面，不需要登录态
-- **已失效的方案**：`m.weibo.cn/api/container/getIndex`（HTTP 432）、`weibo.com/ajax/side/hotSearch`（403）
+- **已失效的方案**：`m.weibo.cn/api/container/getIndex`（HTTP 432/访客验证）、`weibo.com/ajax/side/hotSearch`（403）、微博账号密码登录（极验行为验证码弹窗，无法自动绕过）
 
 ### 3. 雪球数据
 #### 3a. 热股榜（无需登录）
 - URL: `https://xueqiu.com/hq`
 - 方式：内置浏览器 `browser_navigate` 导航到 `/hq` 页面，无需登录即可访问
 - 提取方法：使用 `browser_snapshot` 查看页面结构，找到 "热股榜" 区域
-- 注意：
-  - 默认显示"全球"标签，如需沪深数据需点击"沪深"按钮切换
-  - 页面还有 "市场一览" 板块显示主要指数行情
+- 注意：默认显示"全球"标签，页面还有 "市场一览" 板块显示主要指数行情
 
 #### 3b. 热门话题（需要登录，但有绕过方法）
 - 雪球主页 `https://xueqiu.com/` 有登录弹窗覆盖整个页面
-- **绕过方法**：使用 `browser_console` 执行 JS 隐藏登录弹窗：
-  ```javascript
-  let modal = document.querySelector('.newLogin_modal__login__jj');
-  if (modal?.parentElement) { modal.parentElement.style.display = 'none'; }
-  document.body.style.overflow = 'auto';
-  ```
+- **绕过方法**：使用 `browser_console` 执行 JS 隐藏登录弹窗
 - 或者直接使用 `browser_console({expression: "document.body.innerText"})` 提取全页文本
 
 ### 4. A股成交量和融资融券数据
@@ -121,14 +114,15 @@ browser_console({expression: "document.body.innerText.substring(idx, idx+2000)"}
 
 **重要：cron 任务运行在无用户交互的环境中。** 最终输出会由系统自动投递。不要使用 `send_message`，只需在返回文本中包含报告内容即可。
 
+**重要：GitHub 仓库多文件同步** — 本技能对应的 GitHub 仓库 `kangkang9816/daily-hot-search` 包含 `main.py`、`config.yaml`、`README.md` 等多个文件。更新技能文档后，需要同步更新仓库中对应的文件（README 的模块说明、config.yaml 的数据源URL等），不能只推送 skills/SKILL.md。
+
 ## 注意事项
 
 - 如果某个平台抓取失败，标注 "获取失败" 并继续其他平台
 - 日期使用系统当前时间获取
 - cron 任务中 **不要使用 `send_message`** — 系统自动投递最终回复
-- 雪球页面有登录弹窗，但 snapshot 可穿透获取底层数据（设置 depth=8 优先）
-- **百度 JS 提取的 CSS 选择器容易失效**（页面类名会变化），建议先用 `document.body.innerText` 全量提取作为备选
+- 雪球页面有登录弹窗，但 snapshot 可穿透获取底层数据
 - **微博热搜已修复** — 改用 `weibo.com/newlogin?tabtype=search` 网页版公开页面提取，无需登录、无需 Cookie
-- **Cron 任务技能配置陷阱** — 如果 cron 任务配置了多个技能，系统可能只展示第一个技能的文档就结束。正确做法：**只加载 `daily-hot-search` 一个技能**
+- **Cron 任务技能配置陷阱** — 只加载 `daily-hot-search` 一个技能即可
 - **NAS 容器网络限制**：curl 和 MCP fetch 可能无法访问部分外部 API，但 Playwright 浏览器可以正常访问
-- **周末交易日处理**：如果运行日期是周六或周日，A股市场无交易，需要在报告中明确标注数据日期
+- **周末交易日处理**：周六/周日A股无交易，需要在报告中明确标注数据日期
