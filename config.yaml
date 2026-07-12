@@ -19,23 +19,22 @@ data_sources:
     top_n: 10
   weibo:
     enabled: true
-    url: "https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot"
+    # 注意：m.weibo.cn API 已全面失效（HTTP 432 访客验证）
+    # 改用微博网页版公开热搜页面，通过浏览器提取
+    url: "https://weibo.com/newlogin?tabtype=search&gid=&openLoginLayer=0&url="
     top_n: 10
   xueqiu:
     enabled: true
-    url: "https://xueqiu.com"
-    hot_topics: 10
-    hot_stocks: 5
+    url: "https://xueqiu.com/hq"
+    hot_stocks: 6
   stocks:
     enabled: true
-    shanghai:
-      secid: "1.000001"
-      api: "https://push2.eastmoney.com/api/qt/stock/get"
-    shenzhen:
-      url: "https://finance.sina.com.cn/realstock/company/sz399001/nc.shtml"
+    # 推荐使用新浪财经 API（稳定可靠）
+    sina_api: "https://hq.sinajs.cn/list=sh000001,sz399001"
   margin_trading:
     enabled: true
-    url: "https://data.eastmoney.com/rzrq/total.html"
+    # 东方财富数据中心 API
+    api_url: "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_RZRQ_LSHJ&columns=ALL&pageNumber=1&pageSize=3&sortTypes=-1&sortColumns=DIM_DATE&source=WEB"
 
 output:
   format: "markdown"
