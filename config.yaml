@@ -20,7 +20,7 @@ data_sources:
   weibo:
     enabled: true
     # 注意：m.weibo.cn API 已全面失效（HTTP 432 访客验证）
-    # 改用微博网页版公开热搜页面，通过浏览器提取
+    # 改用微博网页版公开热搜页面，通过浏览器 innerText 提取
     url: "https://weibo.com/newlogin?tabtype=search&gid=&openLoginLayer=0&url="
     top_n: 10
   xueqiu:
@@ -29,12 +29,14 @@ data_sources:
     hot_stocks: 6
   stocks:
     enabled: true
-    # 推荐使用新浪财经 API（稳定可靠）
+    # 新浪财经 API（稳定可靠，需设置 Referer）
     sina_api: "https://hq.sinajs.cn/list=sh000001,sz399001"
+    sina_referer: "https://finance.sina.com.cn/"
   margin_trading:
     enabled: true
-    # 东方财富数据中心 API
+    # 东方财富数据中心 API（需设置 Referer）
     api_url: "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_RZRQ_LSHJ&columns=ALL&pageNumber=1&pageSize=3&sortTypes=-1&sortColumns=DIM_DATE&source=WEB"
+    api_referer: "https://data.eastmoney.com/rzrq/total.html"
 
 output:
   format: "markdown"

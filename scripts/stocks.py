@@ -1,151 +1,189 @@
 """
 A股行情 & 融资融券爬取模块
 
-- 上证指数：东方财富 push2 API（curl 可访问）
-- 深证成指：新浪财经行情页面（Playwright 备选）
-- 融资融券：东方财富数据页面（Playwright 表格提取）
+数据源：
+- 指数行情：新浪财经 API（curl，需设置 Referer）
+- 融资融券：东方财富数据中心 API（curl，需设置 Referer）
+
+验证时间：2026年7月
 """
 
 import json
 import re
 
-EXTRACT_SZZS_TITLE_JS = """
-() => { return document.title; }
-"""
 
-EXTRACT_SZZS_BODY_JS = """
-() => {
-    const allText = document.body.innerText;
-    const lines = allText.split('\\n').filter(l => l.includes('\u6210\u4ea4\u91cf') || l.includes('\u6210\u4ea4\u989d'));
-    return JSON.stringify(lines.slice(0, 5));
-}
-"""
-
-EXTRACT_MARGIN_JS = """
-() => {
-    const tables = document.querySelectorAll('table');
-    const results = [];
-    tables.forEach((table, idx) => {
-        const rows = table.querySelectorAll('tr');
-        const tableData = [];
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td, th');
-            tableData.push(Array.from(cells).map(c => c.textContent.trim()).join(' | '));
-        });
-        results.push(`Table ${idx}:`, ...tableData);
-    });
-    return results.join('\\n');
-}
-"""
+def get_sina_stock_url() -> str:
+    """返回新浪财经 API URL"""
+    return "https://hq.sinajs.cn/list=sh000001,sz399001"
 
 
-def parse_shanghai(api_result: str) -> dict:
+def parse_sina_result(api_result: str) -> dict:
+    """
+    解析新浪财经 API 返回数据。
+    
+    返回格式：
+    var hq_str_sh000001="上证指数,开盘价,昨收价,当前价,最高价,最低价,0,0,成交量(手),成交额(元),...,日期,时间"
+    
+    字段索引：[0名称, 1开盘, 2昨收, 3当前价, 4最高, 5最低, 8成交量(手), 9成交额(元)]
+    两市成交额=(上证成交额+深证成交额)/1e8亿
+    """
+    if not api_result:
+        return {"sh": None, "sz": None, "total_amount_yi": 0}
+    
+    result = {"sh": None, "sz": None, "total_amount_yi": 0}
+    total_amount = 0
+    
+    for line in api_result.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 解析每个指数行
+        m = re.search(r'hq_str_(\w+)="(.+)"', line)
+        if not m:
+            continue
+        
+        code = m.group(1)
+        fields = m.group(2).split(',')
+        
+        if len(fields) < 10:
+            continue
+        
+        name = fields[0]
+        open_price = fields[1]
+        prev_close = fields[2]
+        current = fields[3]
+        high = fields[4]
+        low = fields[5]
+        volume = fields[8]  # 成交量(手)
+        amount = fields[9]  # 成交额(元)
+        
+        # 计算涨跌幅
+        change_pct = ''
+        try:
+            cur = float(current)
+            prev = float(prev_close)
+            if prev > 0:
+                change_pct = f"{(cur - prev) / prev * 100:.2f}%"
+        except (ValueError, IndexError):
+            pass
+        
+        # 成交额转亿
+        amount_yi = ''
+        try:
+            amount_f = float(amount)
+            amount_yi = f"{amount_f / 1e8:.0f}亿"
+            total_amount += amount_f
+        except (ValueError, IndexError):
+            amount_yi = amount
+        
+        index_data = {
+            'name': name,
+            'code': code,
+            'current': current,
+            'change_pct': change_pct,
+            'high': high,
+            'low': low,
+            'volume': volume,
+            'amount_yi': amount_yi,
+        }
+        
+        if code == 'sh000001':
+            result['sh'] = index_data
+        elif code == 'sz399001':
+            result['sz'] = index_data
+    
+    result['total_amount_yi'] = f"{total_amount / 1e8:.0f}亿" if total_amount > 0 else '0亿'
+    return result
+
+
+def get_margin_api_url() -> str:
+    """返回东方财富融资融券 API URL"""
+    return ("https://datacenter-web.eastmoney.com/api/data/v1/get"
+            "?reportName=RPTA_RZRQ_LSHJ&columns=ALL"
+            "&pageNumber=1&pageSize=1&sortTypes=-1&sortColumns=DIM_DATE&source=WEB")
+
+
+def parse_margin_result(api_result: str) -> dict:
+    """
+    解析东方财富融资融券 API 返回数据。
+    
+    返回JSON字段：
+    DIM_DATE(交易日), RZYE(融资余额/元), RQYE(融券余额/元),
+    RZRQYE(两融合计/元), RZMRE(融资买入额/元), RZJME(融资净买入/元),
+    RZYEZB(融资余额占流通市值比%)
+    """
+    if not api_result:
+        return {}
+    
     try:
         data = json.loads(api_result)
-        if data.get("data"):
-            d = data["data"]
-            return {
-                "name": d.get("f58", "\u4e0a\u8bc1\u6307\u6570"),
-                "code": d.get("f57", "000001"),
-                "price": d.get("f43", ""),
-                "change_pct": d.get("f3", ""),
-                "high": d.get("f44", ""),
-                "low": d.get("f45", ""),
-                "volume": d.get("f47", ""),
-                "amount": d.get("f48", ""),
-            }
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        pass
-    return {}
-
-
-def parse_shenzhen(title: str, body_text: str) -> dict:
-    result = {"name": "\u6df1\u8bc1\u6210\u6307"}
-    if title:
-        m = re.search(r"([\d,.]+)\(([+-]?[\d.]+%)\)", title)
-        if m:
-            result["price"] = m.group(1)
-            result["change_pct"] = m.group(2)
-    if body_text:
-        vol_m = re.search(r"\u6210\u4ea4\u91cf[\uff1a:]\s*([\d.]+\u4ebf?\u624b?)", body_text)
-        amt_m = re.search(r"\u6210\u4ea4\u989d[\uff1a:]\s*([\d.]+\u4ebf?\u5143?)", body_text)
-        if vol_m:
-            result["volume"] = vol_m.group(1)
-        if amt_m:
-            result["amount"] = amt_m.group(1)
-    return result
-
-
-def parse_margin_trading(raw_text: str) -> dict:
-    if not raw_text:
+    except json.JSONDecodeError:
         return {}
-    lines = raw_text.strip().split("\n")
-    data_rows = [l for l in lines if not l.startswith("Table ")]
-    result = {}
-    for row in data_rows[:15]:
-        parts = [p.strip() for p in row.split("|")]
-        if len(parts) >= 2:
-            result[parts[0]] = parts[1]
-        elif len(parts) >= 1:
-            result[f"col_{len(result)}"] = parts[0]
-    return result
+    
+    try:
+        items = data.get('result', {}).get('data', [])
+        if not items:
+            return {}
+        d = items[0]
+        
+        def yuan_to_yi(val) -> str:
+            try:
+                return f"{float(val) / 1e8:.2f}亿"
+            except (ValueError, TypeError):
+                return str(val)
+        
+        def format_date(val) -> str:
+            s = str(val)
+            if len(s) == 8:
+                return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+            return s
+        
+        return {
+            '交易日期': format_date(d.get('DIM_DATE', '')),
+            '融资余额': yuan_to_yi(d.get('RZYE', 0)),
+            '融券余额': yuan_to_yi(d.get('RQYE', 0)),
+            '两融余额合计': yuan_to_yi(d.get('RZRQYE', 0)),
+            '融资买入额': yuan_to_yi(d.get('RZMRE', 0)),
+            '融资净买入': yuan_to_yi(d.get('RZJME', 0)),
+            '余额占比': f"{d.get('RZYEZB', '')}%" if d.get('RZYEZB') else '',
+        }
+    except (KeyError, TypeError, IndexError):
+        return {}
 
 
-def format_stocks(sh_data: dict, sz_data: dict) -> str:
-    if not sh_data and not sz_data:
-        return "❌ A股行情：获取失败"
-    lines = ["━━━━━━━━━━━━━━━━━━━", "📊 A股市场概况", "━━━━━━━━━━━━━━━━━━━", ""]
-    lines.append("| 指数 | 最新价 | 涨跌幅 | 成交额 |")
-    lines.append("|------|--------|--------|--------|")
-    total_amount = 0
-    if sh_data:
-        name = sh_data.get("name", "\u4e0a\u8bc1\u6307\u6570")
-        price = sh_data.get("price", "-")
-        change = sh_data.get("change_pct", "-")
-        amount = sh_data.get("amount", "0")
-        try:
-            amount_yi = f"{float(amount) / 1e8:.0f}\u4ebf}" if amount else "-"
-            total_amount += float(amount or 0)
-        except ValueError:
-            amount_yi = amount
-        lines.append(f"| {name} | {price} | {change}% | {amount_yi} |")
-    if sz_data:
-        name = sz_data.get("name", "\u6df1\u8bc1\u6210\u6307")
-        price = sz_data.get("price", "-")
-        change = sz_data.get("change_pct", "-")
-        amount = sz_data.get("amount", "-")
-        lines.append(f"| {name} | {price} | {change} | {amount} |")
-    if total_amount > 0:
-        lines.append(f"| 两市合计 | | | **{total_amount / 1e8:.0f}\u4ebf** |")
+def format_stocks(data: dict) -> str:
+    """格式化A股行情为 Markdown"""
+    sh = data.get('sh')
+    sz = data.get('sz')
+    total = data.get('total_amount_yi', '')
+    
+    if not sh and not sz:
+        return "━━━━━━━━━━━━━━━━━━━\n📊 A股市场概况\n━━━━━━━━━━━━━━━━━━━\n❌ A股行情：获取失败"
+    
+    lines = ["━━━━━━━━━━━━━━━━━━━", "📊 A股市场概况", "━━━━━━━━━━━━━━━━━━━",
+             "| 指数 | 最新价 | 涨跌幅 | 成交额 |",
+             "|------|--------|--------|--------|"]
+    if sh:
+        lines.append(f"| {sh['name']} | {sh['current']} | {sh['change_pct']} | {sh['amount_yi']} |")
+    if sz:
+        lines.append(f"| {sz['name']} | {sz['current']} | {sz['change_pct']} | {sz['amount_yi']} |")
+    lines.append(f"| **两市合计** | | | **{total}** |")
+    
     return "\n".join(lines)
 
 
 def format_margin(data: dict) -> str:
+    """格式化融资融券数据为 Markdown"""
     if not data:
-        return "❌ 融资融券：获取失败"
-    lines = ["", "━━━━━━━━━━━━━━━━━━━", "📊 融资融券概况", "━━━━━━━━━━━━━━━━━━━", ""]
-    lines.append("| 指标 | 数值 |")
-    lines.append("|------|------|")
-    field_map = {
-        "\u878d\u8d44\u4f59\u989d": "\u878d\u8d44\u4f59\u989d",
-        "\u878d\u5238\u4f59\u989d": "\u878d\u5238\u4f59\u989d",
-        "\u4e24\u878d\u4f59\u989d": "\u878d\u8d44\u878d\u5238\u4f59\u989d\u5408\u8ba1",
-        "\u878d\u8d44\u4e70\u5165\u989d": "\u878d\u8d44\u4e70\u5165\u989d",
-        "\u878d\u8d44\u507f\u8fd8\u989d": "\u878d\u8d44\u507f\u8fd8\u989d",
-        "\u878d\u8d44\u51c0\u4e70\u5165": "\u878d\u8d44\u51c0\u4e70\u5165",
-        "\u878d\u8d44\u4f59\u989d\u5360\u6d41\u901a\u5e02\u503c\u6bd4": "\u4f59\u989d\u5360\u6d41\u901a\u5e02\u503c\u6bd4",
-        "\u65e5\u671f": "\u4ea4\u6613\u65e5\u671f",
-    }
-    output_fields = ["\u4ea4\u6613\u65e5\u671f", "\u878d\u8d44\u4f59\u989d", "\u878d\u5238\u4f59\u989d",
-                     "\u878d\u8d44\u878d\u5238\u4f59\u989d\u5408\u8ba1",
-                     "\u878d\u8d44\u4e70\u5165\u989d", "\u878d\u8d44\u507f\u8fd8\u989d",
-                     "\u878d\u8d44\u51c0\u4e70\u5165", "\u4f59\u989d\u5360\u6d41\u901a\u5e02\u503c\u6bd4"]
-    for field in output_fields:
-        for key, val in field_map.items():
-            if val == field:
-                for dk, dv in data.items():
-                    if key in dk:
-                        lines.append(f"| {field} | {dv} |")
-                        break
-                break
+        return "\n━━━━━━━━━━━━━━━━━━━\n📊 融资融券概况\n━━━━━━━━━━━━━━━━━━━\n❌ 融资融券：获取失败"
+    
+    lines = ["\n━━━━━━━━━━━━━━━━━━━", "📊 融资融券概况", "━━━━━━━━━━━━━━━━━━━",
+             "| 指标 | 数值 |", "|------|------|"]
+    
+    key_order = ['交易日期', '融资余额', '融券余额', '两融余额合计', '融资买入额', '融资净买入', '余额占比']
+    for key in key_order:
+        if key in data:
+            lines.append(f"| {key} | {data[key]} |")
+    
     return "\n".join(lines)

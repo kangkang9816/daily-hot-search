@@ -16,6 +16,11 @@ def build_report(
     stocks_text: str = "",
     margin_text: str = "",
 ) -> str:
+    """
+    构建完整的每日热搜早报报告。
+    
+    参数可传入各平台预格式化的文本块，直接拼接。
+    """
     if not date_str:
         now = datetime.now()
         date_str = now.strftime("%Y年%m月%d日")
