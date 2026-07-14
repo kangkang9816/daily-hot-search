@@ -133,11 +133,11 @@ def main():
     margin_text = fetch_margin_trading()
     print(f"  ✅ 融资融券获取完成")
 
-    # 4. 构建报告
+    # 4. 构建报告（新版三板块格式）
     report = build_report(
         date_str=now.strftime("%Y年%m月%d日"),
         weekday_str=weekdays[now.weekday()],
-        multi_platform_text=multi_platform_text,
+        results=results,
         stocks_text=stocks_text,
         margin_text=margin_text,
     )
