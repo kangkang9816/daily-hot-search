@@ -1,3 +1,6 @@
-playwright>=1.40.0
-pyyaml>=6.0
-requests>=2.28.0
+# 每日热搜早报 v4.0
+# 本版本使用 newsnow API 替代浏览器抓取，核心依赖均为 Python 标准库
+# 无需额外 pip 安装。A股数据通过 curl 获取（系统自带）。
+# 
+# 如果需要在无 curl 的环境运行，安装 requests 替代：
+# requests>=2.28.0

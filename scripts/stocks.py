@@ -137,6 +137,8 @@ def parse_margin_result(api_result: str) -> dict:
             s = str(val)
             if len(s) == 8:
                 return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+            if len(s) >= 10:
+                return s[:10]
             return s
         
         return {
@@ -146,7 +148,6 @@ def parse_margin_result(api_result: str) -> dict:
             '两融余额合计': yuan_to_yi(d.get('RZRQYE', 0)),
             '融资买入额': yuan_to_yi(d.get('RZMRE', 0)),
             '融资净买入': yuan_to_yi(d.get('RZJME', 0)),
-            '余额占比': f"{d.get('RZYEZB', '')}%" if d.get('RZYEZB') else '',
         }
     except (KeyError, TypeError, IndexError):
         return {}
@@ -181,7 +182,7 @@ def format_margin(data: dict) -> str:
     lines = ["\n━━━━━━━━━━━━━━━━━━━", "📊 融资融券概况", "━━━━━━━━━━━━━━━━━━━",
              "| 指标 | 数值 |", "|------|------|"]
     
-    key_order = ['交易日期', '融资余额', '融券余额', '两融余额合计', '融资买入额', '融资净买入', '余额占比']
+    key_order = ['交易日期', '融资余额', '融券余额', '两融余额合计', '融资买入额', '融资净买入']
     for key in key_order:
         if key in data:
             lines.append(f"| {key} | {data[key]} |")
